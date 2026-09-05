@@ -1,24 +1,6 @@
-const { Pool } = require("pg");
-const dns = require("dns");
-
-// Forzar IPv4 (Render plan gratis no soporta IPv6 bien)
-dns.setDefaultResultOrder("ipv4first");
-
-const url = process.env.DATABASE_URL || "";
-
-// ¿La conexión necesita SSL?
-// - Local (tu computador): NO
-// - Render interna (dpg-... .render.com): NO (red privada interna)
-// - Externa (Supabase u otra): SÍ
 const esLocal = url.includes("localhost") || url.includes("127.0.0.1");
-const esRenderInterna = url.includes("render.com") || url.startsWith("postgresql://") && url.includes("dpg-");
 
-let configSSL;
-if (esLocal || esRenderInterna) {
-  configSSL = false;
-} else {
-  configSSL = { rejectUnauthorized: false };
-}
+const configSSL = esLocal ? false : { rejectUnauthorized: false };
 
 const pool = new Pool({
   connectionString: url,
@@ -34,7 +16,6 @@ pool.query("SELECT 1")
     console.error(">>> CONEXION A BASE DE DATOS: FALLO");
     console.error(">>> Mensaje:", err.message);
     console.error(">>> Codigo:", err.code);
-    console.error(">>> SSL:", JSON.stringify(configSSL));
     console.error(">>> Host destino:", host);
   });
 
