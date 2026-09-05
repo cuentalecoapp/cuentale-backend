@@ -35,8 +35,13 @@ router.post("/registro", async (req, res) => {
     res.status(201).json({ usuario, token });
   } catch (err) {
     console.error(err);
-    // TEMPORAL: mostramos el detalle del error para diagnosticar
-    res.status(500).json({ error: "No se pudo crear la cuenta.", detalle: err.message });
+    // TEMPORAL: mostramos TODO el error para diagnosticar
+    res.status(500).json({
+      error: "No se pudo crear la cuenta.",
+      detalle: err.message || "sin mensaje",
+      codigo: err.code || "sin codigo",
+      tipo: err.name || "sin tipo",
+    });
   }
 });
 
