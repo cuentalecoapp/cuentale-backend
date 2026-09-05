@@ -1,6 +1,12 @@
-const esLocal = url.includes("localhost") || url.includes("127.0.0.1");
+const { Pool } = require("pg");
+const dns = require("dns");
 
-const configSSL = esLocal ? false : { rejectUnauthorized: false };
+dns.setDefaultResultOrder("ipv4first");
+
+const url = process.env.DATABASE_URL || "";
+const esLocal = url.includes("localhost") || url.includes("127.0.0.1");
+const esInternaRender = url.includes("@dpg-") && !url.includes(".render.com");
+const configSSL = (esLocal || esInternaRender) ? false : { rejectUnauthorized: false };
 
 const pool = new Pool({
   connectionString: url,
@@ -8,15 +14,11 @@ const pool = new Pool({
   connectionTimeoutMillis: 15000,
 });
 
-// Diagnóstico al arrancar: probamos la conexión y lo mostramos en los logs de Render
 pool.query("SELECT 1")
   .then(() => console.log(">>> CONEXION A BASE DE DATOS: EXITOSA"))
   .catch((err) => {
     const host = (url.match(/@([^:/]+)/) || [])[1] || "desconocido";
-    console.error(">>> CONEXION A BASE DE DATOS: FALLO");
-    console.error(">>> Mensaje:", err.message);
-    console.error(">>> Codigo:", err.code);
-    console.error(">>> Host destino:", host);
+    console.error(">>> CONEXION FALLO. Mensaje:", err.message, "| Codigo:", err.code, "| Host:", host);
   });
 
 module.exports = pool;
