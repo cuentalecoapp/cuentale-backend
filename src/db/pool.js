@@ -1,23 +1,41 @@
 const { Pool } = require("pg");
 const dns = require("dns");
 
-// Forzar IPv4: Render (plan gratis) NO soporta IPv6, y Supabase a veces
-// resuelve a IPv6 primero, causando ECONNREFUSED / AggregateError.
-// Con esto, Node.js prioriza IPv4 al resolver direcciones.
+// Forzar IPv4 (Render plan gratis no soporta IPv6 bien)
 dns.setDefaultResultOrder("ipv4first");
 
-// Detectamos si la conexión es local (tu computador) o en la nube.
-const esLocal =
-  !process.env.DATABASE_URL ||
-  process.env.DATABASE_URL.includes("localhost") ||
-  process.env.DATABASE_URL.includes("127.0.0.1");
+const url = process.env.DATABASE_URL || "";
+
+// ¿La conexión necesita SSL?
+// - Local (tu computador): NO
+// - Render interna (dpg-... .render.com): NO (red privada interna)
+// - Externa (Supabase u otra): SÍ
+const esLocal = url.includes("localhost") || url.includes("127.0.0.1");
+const esRenderInterna = url.includes("render.com") || url.startsWith("postgresql://") && url.includes("dpg-");
+
+let configSSL;
+if (esLocal || esRenderInterna) {
+  configSSL = false;
+} else {
+  configSSL = { rejectUnauthorized: false };
+}
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  // En la nube activamos SSL; en local lo dejamos apagado.
-  ssl: esLocal ? false : { rejectUnauthorized: false },
-  // Tiempo máximo de espera para conectar (evita que cuelgue).
+  connectionString: url,
+  ssl: configSSL,
   connectionTimeoutMillis: 15000,
 });
+
+// Diagnóstico al arrancar: probamos la conexión y lo mostramos en los logs de Render
+pool.query("SELECT 1")
+  .then(() => console.log(">>> CONEXION A BASE DE DATOS: EXITOSA"))
+  .catch((err) => {
+    const host = (url.match(/@([^:/]+)/) || [])[1] || "desconocido";
+    console.error(">>> CONEXION A BASE DE DATOS: FALLO");
+    console.error(">>> Mensaje:", err.message);
+    console.error(">>> Codigo:", err.code);
+    console.error(">>> SSL:", JSON.stringify(configSSL));
+    console.error(">>> Host destino:", host);
+  });
 
 module.exports = pool;
