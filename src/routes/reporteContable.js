@@ -21,7 +21,10 @@ router.get("/:negocioId/reporte-contable", async (req, res) => {
   const filtroFecha = desde && hasta ? "AND t.fecha BETWEEN $2 AND $3" : "";
   const params = desde && hasta ? [negocioId, desde, hasta] : [negocioId];
 
-  const negocio = await pool.query("SELECT nombre FROM negocios WHERE id = $1", [negocioId]);
+  const negocio = await pool.query(
+    "SELECT nombre, nit, direccion, telefono, correo, ciudad, logo FROM negocios WHERE id = $1",
+    [negocioId]
+  );
 
   const movimientos = await pool.query(
     `SELECT
@@ -56,6 +59,7 @@ router.get("/:negocioId/reporte-contable", async (req, res) => {
 
   res.json({
     negocio: negocio.rows[0]?.nombre || "Negocio",
+    negocioInfo: negocio.rows[0] || {},
     generadoEn: new Date().toISOString(),
     rango: desde && hasta ? { desde, hasta } : null,
     movimientos: movimientos.rows,
