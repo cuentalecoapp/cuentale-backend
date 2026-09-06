@@ -30,7 +30,9 @@ router.get("/:negocioId/facturas/:id", async (req, res) => {
   }
 
   const factura = await pool.query(
-    `SELECT f.*, n.nombre AS negocio_nombre
+    `SELECT f.*, n.nombre AS negocio_nombre, n.nit AS negocio_nit,
+            n.direccion AS negocio_direccion, n.telefono AS negocio_telefono,
+            n.correo AS negocio_correo, n.ciudad AS negocio_ciudad, n.logo AS negocio_logo
      FROM facturas f JOIN negocios n ON n.id = f.negocio_id
      WHERE f.id = $1 AND f.negocio_id = $2`,
     [id, negocioId]
