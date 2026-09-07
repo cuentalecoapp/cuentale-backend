@@ -6,21 +6,6 @@ const { tieneAcceso } = require("../db/acceso");
 const router = express.Router();
 router.use(requireAuth);
 
-// GET /api/negocios/:negocioId/categorias — categorías disponibles para clasificar movimientos
-router.get("/:negocioId/categorias", async (req, res) => {
-  const { negocioId } = req.params;
-
-  if (!(await tieneAcceso(negocioId, req.usuarioId))) {
-    return res.status(404).json({ error: "Negocio no encontrado." });
-  }
-
-  const resultado = await pool.query(
-    "SELECT id, nombre, tipo, icono FROM categorias WHERE negocio_id = $1 ORDER BY nombre",
-    [negocioId]
-  );
-  res.json(resultado.rows);
-});
-
 // GET /api/negocios/:negocioId/transacciones — lista de movimientos, más recientes primero
 router.get("/:negocioId/transacciones", async (req, res) => {
   const { negocioId } = req.params;
