@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS codigos_recuperacion (
   id SERIAL PRIMARY KEY,
-  usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  usuario_id UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
   token_hash VARCHAR(64) NOT NULL UNIQUE, -- guardamos el código "encriptado", nunca el original
   expira_en TIMESTAMPTZ NOT NULL,
   usado BOOLEAN NOT NULL DEFAULT FALSE,
