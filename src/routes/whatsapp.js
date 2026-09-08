@@ -41,6 +41,10 @@ async function respuestaFlujoCaja(negocioId) {
 router.post("/whatsapp/webhook", async (req, res) => {
   res.type("text/xml");
 
+  // TEMPORAL: para ver exactamente qué está mandando Twilio, sin adivinar.
+  console.log("=== MENSAJE DE WHATSAPP RECIBIDO ===");
+  console.log(JSON.stringify(req.body, null, 2));
+
   const numeroCrudo = req.body.From || ""; // formato: "whatsapp:+573001234567"
   const numero = limpiarNumero(numeroCrudo.replace("whatsapp:", "").trim());
   const texto = (req.body.Body || "").trim();
