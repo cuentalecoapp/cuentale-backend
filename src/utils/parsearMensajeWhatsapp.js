@@ -19,7 +19,10 @@ function parsearMensaje(textoOriginal) {
   if (coincidenciaMil) {
     monto = parseFloat(coincidenciaMil[1].replace(",", ".")) * 1000;
   } else {
-    const coincidenciaNumero = texto.match(/\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?/);
+    // Primero probamos un número con puntos/comas de miles (ej. "20.000"),
+    // y si no hay, aceptamos cualquier cantidad de dígitos seguidos (ej. "20000")
+    // — antes esto se quedaba solo con los primeros 3 dígitos y perdía el resto.
+    const coincidenciaNumero = texto.match(/\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d{1,2})?/);
     if (coincidenciaNumero) {
       monto = Number(coincidenciaNumero[0].replace(/\./g, "").replace(",", "."));
     }
