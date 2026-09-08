@@ -15,6 +15,12 @@ const PALABRAS_CONSULTA = /(c[oó]mo\s+voy|c[oó]mo\s+vamos|c[oó]mo\s+va[s]?\b|
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
+// El número "desde" el que salen los mensajes — el del Sandbox mientras probamos,
+// y el número real de WhatsApp Business el día que lancemos con clientes reales.
+const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || "whatsapp:+14155238886";
+// Una contraseña propia, para que nadie más en internet pueda disparar el envío
+// masivo de mensajes solo con conocer la dirección de esta función.
+const CRON_SECRET = process.env.CRON_SECRET;
 
 function respuestaTwiml(mensaje) {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${mensaje}</Message></Response>`;
@@ -73,6 +79,88 @@ async function transcribirNotaDeVoz(mediaUrl) {
   const texto = datos.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
   return texto.trim();
 }
+
+// Manda un WhatsApp por iniciativa de Cuéntale (no como respuesta a un mensaje
+// del usuario) — necesario para el resumen semanal, que llega solo, sin que
+// nadie pregunte nada.
+async function enviarWhatsAppProactivo(numeroDestino, mensaje) {
+  const credenciales = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
+  const cuerpo = new URLSearchParams({
+    From: TWILIO_WHATSAPP_FROM,
+    To: `whatsapp:${numeroDestino}`,
+    Body: mensaje,
+  });
+
+  const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${credenciales}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: cuerpo,
+  });
+
+  if (!resp.ok) {
+    const detalle = await resp.text();
+    throw new Error(`Twilio respondió ${resp.status}: ${detalle}`);
+  }
+}
+
+// POST /api/whatsapp/resumen-semanal — no la llama una persona, la llama un
+// servicio externo de "reloj despertador" (ver la guía) una vez por semana.
+// Manda a cada negocio con WhatsApp vinculado un resumen de cómo le fue.
+router.post("/whatsapp/resumen-semanal", async (req, res) => {
+  const clave = req.query.clave || req.get("x-cron-secret");
+  if (!CRON_SECRET || clave !== CRON_SECRET) {
+    return res.status(403).json({ error: "No autorizado." });
+  }
+
+  try {
+    const negocios = await pool.query(
+      `SELECT DISTINCT n.id, n.nombre, w.numero
+       FROM negocios n
+       JOIN whatsapp_numeros w ON w.negocio_id = n.id`
+    );
+
+    const formato = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+    let enviados = 0;
+    const errores = [];
+
+    for (const fila of negocios.rows) {
+      try {
+        const resumen = await pool.query(
+          `SELECT
+             COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) AS ingresos,
+             COALESCE(SUM(CASE WHEN tipo = 'gasto' THEN monto ELSE 0 END), 0) AS gastos
+           FROM transacciones
+           WHERE negocio_id = $1 AND fecha >= CURRENT_DATE - INTERVAL '7 days'`,
+          [fila.id]
+        );
+        const ingresos = Number(resumen.rows[0].ingresos);
+        const gastos = Number(resumen.rows[0].gastos);
+        const neto = ingresos - gastos;
+
+        const mensaje =
+          `👋 ¡Buen lunes! Así te fue la semana pasada en ${fila.nombre}:\n\n` +
+          `📈 Vendiste: ${formato.format(ingresos)}\n` +
+          `📉 Gastaste: ${formato.format(gastos)}\n` +
+          `💰 Te quedó: ${formato.format(neto)}\n\n` +
+          `Escríbeme "¿cómo voy?" cuando quieras ver cómo va el mes completo.`;
+
+        await enviarWhatsAppProactivo(fila.numero, mensaje);
+        enviados++;
+      } catch (err) {
+        console.error(err);
+        errores.push({ negocio: fila.nombre, error: err.message });
+      }
+    }
+
+    res.json({ enviados, errores });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "No se pudo enviar el resumen semanal." });
+  }
+});
 
 // POST /api/whatsapp/webhook — Twilio manda aquí cada mensaje entrante.
 // Es una ruta pública (Twilio no tiene tu token de sesión), por eso NO lleva requireAuth.
