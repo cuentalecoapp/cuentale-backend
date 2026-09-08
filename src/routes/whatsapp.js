@@ -41,10 +41,6 @@ async function respuestaFlujoCaja(negocioId) {
 router.post("/whatsapp/webhook", async (req, res) => {
   res.type("text/xml");
 
-  // TEMPORAL: para ver exactamente qué está mandando Twilio, sin adivinar.
-  console.log("=== MENSAJE DE WHATSAPP RECIBIDO ===");
-  console.log(JSON.stringify(req.body, null, 2));
-
   const numeroCrudo = req.body.From || ""; // formato: "whatsapp:+573001234567"
   const numero = limpiarNumero(numeroCrudo.replace("whatsapp:", "").trim());
   const texto = (req.body.Body || "").trim();
@@ -61,7 +57,7 @@ router.post("/whatsapp/webhook", async (req, res) => {
   if (vinculo.rows.length === 0) {
     return res.send(
       respuestaTwiml(
-        `Este número (${numero}) todavía no está vinculado a ningún negocio. Entra a la app, ve a Equipo, y vincula este número primero.`
+        "Este número todavía no está vinculado a ningún negocio. Entra a la app, ve a Equipo, y vincula este número primero."
       )
     );
   }
