@@ -57,7 +57,7 @@ router.post("/whatsapp/webhook", async (req, res) => {
   if (vinculo.rows.length === 0) {
     return res.send(
       respuestaTwiml(
-        "Este número todavía no está vinculado a ningún negocio. Entra a la app, ve a Equipo, y vincula este número primero."
+        `Este número (${numero}) todavía no está vinculado a ningún negocio. Entra a la app, ve a Equipo, y vincula este número primero.`
       )
     );
   }
