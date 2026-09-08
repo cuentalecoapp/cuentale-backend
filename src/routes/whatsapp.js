@@ -12,6 +12,10 @@ const EMOJI_SEMAFORO = { verde: "🟢", amarillo: "🟡", rojo: "🔴" };
 // Frases que reconocemos como "quiero saber cómo va mi negocio", no un movimiento nuevo.
 const PALABRAS_CONSULTA = /(c[oó]mo\s+voy|c[oó]mo\s+vamos|c[oó]mo\s+va[s]?\b|cu[aá]nto\s+(me\s+queda|tengo)|saldo|resumen)/i;
 
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
+
 function respuestaTwiml(mensaje) {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${mensaje}</Message></Response>`;
 }
@@ -36,6 +40,40 @@ async function respuestaFlujoCaja(negocioId) {
   return texto;
 }
 
+// Convierte una nota de voz de WhatsApp en texto, para que el usuario pueda
+// "hablarle" a Cuéntale en vez de escribir, mientras atiende el negocio.
+// Pasos: 1) descargar el audio de Twilio (pide usuario y clave, como abrir una caja fuerte)
+//        2) mandárselo a Deepgram, que devuelve lo que la persona dijo, en texto.
+async function transcribirNotaDeVoz(mediaUrl) {
+  const credenciales = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
+
+  const audioResp = await fetch(mediaUrl, {
+    headers: { Authorization: `Basic ${credenciales}` },
+  });
+  if (!audioResp.ok) {
+    throw new Error(`No se pudo descargar el audio de Twilio (status ${audioResp.status}).`);
+  }
+  const audioBuffer = await audioResp.arrayBuffer();
+
+  const transResp = await fetch(
+    "https://api.deepgram.com/v1/listen?language=es&model=nova-2&smart_format=true",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Token ${DEEPGRAM_API_KEY}`,
+        "Content-Type": "audio/ogg", // así llegan las notas de voz de WhatsApp
+      },
+      body: audioBuffer,
+    }
+  );
+  if (!transResp.ok) {
+    throw new Error(`No se pudo transcribir el audio (status ${transResp.status}).`);
+  }
+  const datos = await transResp.json();
+  const texto = datos.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+  return texto.trim();
+}
+
 // POST /api/whatsapp/webhook — Twilio manda aquí cada mensaje entrante.
 // Es una ruta pública (Twilio no tiene tu token de sesión), por eso NO lleva requireAuth.
 router.post("/whatsapp/webhook", async (req, res) => {
@@ -43,7 +81,25 @@ router.post("/whatsapp/webhook", async (req, res) => {
 
   const numeroCrudo = req.body.From || ""; // formato: "whatsapp:+573001234567"
   const numero = limpiarNumero(numeroCrudo.replace("whatsapp:", "").trim());
-  const texto = (req.body.Body || "").trim();
+  let texto = (req.body.Body || "").trim();
+  let esNotaDeVoz = false;
+
+  // ¿Vino una nota de voz? Twilio manda el audio como un "medio adjunto",
+  // no como texto — hay que escucharlo primero para saber qué dice.
+  const numMedia = parseInt(req.body.NumMedia || "0", 10);
+  const tipoMedia = req.body.MediaContentType0 || "";
+  if (numMedia > 0 && tipoMedia.startsWith("audio/")) {
+    esNotaDeVoz = true;
+    try {
+      texto = await transcribirNotaDeVoz(req.body.MediaUrl0);
+    } catch (err) {
+      console.error(err);
+      return res.send(respuestaTwiml("No pude escuchar bien tu nota de voz. Intenta grabarla de nuevo, hablando despacio y sin ruido de fondo."));
+    }
+    if (!texto) {
+      return res.send(respuestaTwiml("No logré entender nada en el audio. ¿Puedes intentar de nuevo o escribirlo?"));
+    }
+  }
 
   if (!numero || !texto) {
     return res.send(respuestaTwiml("No recibí ningún mensaje entendible."));
@@ -77,11 +133,12 @@ router.post("/whatsapp/webhook", async (req, res) => {
   }
 
   const { tipo, monto, descripcion } = parsearMensaje(texto);
+  const prefijoEscuchado = esNotaDeVoz ? `🎙️ Escuché: "${texto}"\n\n` : "";
 
   if (!tipo || !monto) {
     return res.send(
       respuestaTwiml(
-        'No logré entender el movimiento. Escríbelo así: "vendí 50 mil en pan" o "gasté 30000 en harina".'
+        `${prefijoEscuchado}No logré entender el movimiento. Dilo o escríbelo así: "vendí 50 mil en pan" o "gasté 30000 en harina".`
       )
     );
   }
@@ -104,7 +161,7 @@ router.post("/whatsapp/webhook", async (req, res) => {
 
     const formato = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
     const verbo = tipo === "ingreso" ? "Ingreso" : "Gasto";
-    res.send(respuestaTwiml(`✅ ${verbo} de ${formato.format(monto)} registrado${descripcion ? ` (${descripcion})` : ""}.`));
+    res.send(respuestaTwiml(`${prefijoEscuchado}✅ ${verbo} de ${formato.format(monto)} registrado${descripcion ? ` (${descripcion})` : ""}.`));
   } catch (err) {
     console.error(err);
     res.send(respuestaTwiml("Hubo un problema al registrar el movimiento. Intenta de nuevo o hazlo desde la app."));
