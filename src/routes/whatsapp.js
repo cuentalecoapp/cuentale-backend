@@ -101,7 +101,7 @@ async function enviarWhatsAppProactivo(numeroDestino, mensaje) {
   });
 
   if (!resp.ok) {
-    const detalle = await resp.text();
+    const detalle = (await resp.text()).slice(0, 200);
     throw new Error(`Twilio respondió ${resp.status}: ${detalle}`);
   }
 }
