@@ -3,11 +3,29 @@ const pool = require("../db/pool");
 const { requireAuth } = require("../middleware/auth");
 const { tieneAcceso } = require("../db/acceso");
 const { parsearMensaje } = require("../utils/parsearMensajeWhatsapp");
+const { calcularFlujoCaja } = require("../utils/flujoCaja");
 
 const router = express.Router();
 
+const EMOJI_SEMAFORO = { verde: "🟢", amarillo: "🟡", rojo: "🔴" };
+
+// Frases que reconocemos como "quiero saber cómo va mi negocio", no un movimiento nuevo.
+const PALABRAS_CONSULTA = /(c[oó]mo\s+voy|c[oó]mo\s+vamos|c[oó]mo\s+va[s]?\b|cu[aá]nto\s+(me\s+queda|tengo)|saldo|resumen)/i;
+
 function respuestaTwiml(mensaje) {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${mensaje}</Message></Response>`;
+}
+
+// Arma la respuesta de "¿cómo voy?" en un mensaje corto y humano, no un reporte de números.
+async function respuestaFlujoCaja(negocioId) {
+  const datos = await calcularFlujoCaja(negocioId);
+  const emoji = EMOJI_SEMAFORO[datos.semaforo] || "";
+  const formato = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+
+  let texto = `${emoji} ${datos.mensaje}\n\nTe quedarían ${formato.format(datos.proyectado)} para fin de mes.`;
+  if (datos.porque) texto += `\n\n${datos.porque}`;
+  if (datos.comparacion) texto += `\n\n${datos.comparacion}`;
+  return texto;
 }
 
 // POST /api/whatsapp/webhook — Twilio manda aquí cada mensaje entrante.
@@ -37,6 +55,19 @@ router.post("/whatsapp/webhook", async (req, res) => {
   }
 
   const negocioId = vinculo.rows[0].negocio_id;
+
+  // Antes de intentar registrar un movimiento, revisamos si en realidad
+  // el usuario está preguntando cómo va su negocio (no reportando una venta/gasto).
+  if (PALABRAS_CONSULTA.test(texto) && !/\d/.test(texto)) {
+    try {
+      const respuesta = await respuestaFlujoCaja(negocioId);
+      return res.send(respuestaTwiml(respuesta));
+    } catch (err) {
+      console.error(err);
+      return res.send(respuestaTwiml("No pude calcular tu flujo de caja ahora mismo. Intenta de nuevo en un momento."));
+    }
+  }
+
   const { tipo, monto, descripcion } = parsearMensaje(texto);
 
   if (!tipo || !monto) {
