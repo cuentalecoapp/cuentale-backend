@@ -16,6 +16,14 @@ function respuestaTwiml(mensaje) {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${mensaje}</Message></Response>`;
 }
 
+// Deja el número solo con dígitos y el signo "+" al principio, sin importar
+// si alguien lo escribió con espacios, guiones o paréntesis por accidente.
+// Así "+57 315 787-6997" y "+573157876997" siempre calzan como el mismo número.
+function limpiarNumero(numero) {
+  const limpio = numero.replace(/[^\d+]/g, "");
+  return limpio.startsWith("+") ? limpio : `+${limpio}`;
+}
+
 // Arma la respuesta de "¿cómo voy?" en un mensaje corto y humano, no un reporte de números.
 async function respuestaFlujoCaja(negocioId) {
   const datos = await calcularFlujoCaja(negocioId);
@@ -34,7 +42,7 @@ router.post("/whatsapp/webhook", async (req, res) => {
   res.type("text/xml");
 
   const numeroCrudo = req.body.From || ""; // formato: "whatsapp:+573001234567"
-  const numero = numeroCrudo.replace("whatsapp:", "").trim();
+  const numero = limpiarNumero(numeroCrudo.replace("whatsapp:", "").trim());
   const texto = (req.body.Body || "").trim();
 
   if (!numero || !texto) {
@@ -129,9 +137,10 @@ router.post("/negocios/:negocioId/whatsapp", requireAuth, async (req, res) => {
   }
 
   try {
+    const numeroLimpio = limpiarNumero(numero.trim());
     const resultado = await pool.query(
       "INSERT INTO whatsapp_numeros (negocio_id, numero) VALUES ($1, $2) RETURNING id, numero, creado_en",
-      [negocioId, numero.trim()]
+      [negocioId, numeroLimpio]
     );
     res.status(201).json(resultado.rows[0]);
   } catch (err) {
